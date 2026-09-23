@@ -1,0 +1,6 @@
+@IberaReclamos.API_HostAddress = http://localhost:5196
+
+GET {{IberaReclamos.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
