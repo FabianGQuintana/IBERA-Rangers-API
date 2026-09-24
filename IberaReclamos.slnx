@@ -1,2 +1,6 @@
 <Solution>
+  <Project Path="IberaReclamos.API/IberaReclamos.API.csproj" />
+  <Project Path="IberaReclamos.Application/IberaReclamos.Application.csproj" />
+  <Project Path="IberaReclamos.Domain/IberaReclamos.Domain.csproj" />
+  <Project Path="IberaReclamos.Infrastructure/IberaReclamos.Infrastructure.csproj" />
 </Solution>
