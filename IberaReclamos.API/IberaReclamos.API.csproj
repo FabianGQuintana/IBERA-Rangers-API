@@ -15,4 +15,8 @@
     <ProjectReference Include="..\IberaReclamos.Infrastructure\IberaReclamos.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Middleware\" />
+  </ItemGroup>
+
 </Project>
