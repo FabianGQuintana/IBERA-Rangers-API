@@ -4,7 +4,10 @@ using System.Text;
 
 namespace IberaReclamos.Domain.Enum
 {
-    class _
+    public enum TypeStatusReportAndTasks
     {
+        Canceled = 0,
+        Pending = 1,
+        Done = 2
     }
 }
