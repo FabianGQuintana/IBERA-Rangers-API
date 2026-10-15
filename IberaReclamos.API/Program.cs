@@ -1,4 +1,9 @@
+using System.Text.Json.Serialization;
+using FluentValidation;
+using IberaReclamos.API.Filters;
+using IberaReclamos.Application.Validators;
 using IberaReclamos.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,8 +21,32 @@ if (string.IsNullOrWhiteSpace(defaultConnection))
 // =========================================================================
 // 1. CONFIGURACIÓN DE CONTROLADORES
 // =========================================================================
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+    {
+        // Valida automáticamente cada DTO con su validador de FluentValidation antes de entrar al controller.
+        options.Filters.Add<ValidationFilter>();
+    })
+    .AddJsonOptions(options =>
+    {
+        // Acepta y devuelve enums como texto ("Pending") en vez de números.
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
+
+// Desactivamos el 400 automático de [ApiController]: los errores de validación los arma nuestro ValidationFilter
+// con el mismo formato que el resto de la API.
+builder.Services.Configure<ApiBehaviorOptions>(options => options.SuppressModelStateInvalidFilter = true);
+
 builder.Services.AddOpenApi();
+
+#endregion
+
+
+#region VALIDACIONES (FluentValidation)
+// =========================================================================
+// VALIDACIONES (FluentValidation)
+// =========================================================================
+// Registra TODOS los AbstractValidator<T> que haya en el proyecto Application (Validators/).
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserValidator>();
 
 #endregion
 
