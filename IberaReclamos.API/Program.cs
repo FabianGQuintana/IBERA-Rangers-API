@@ -2,7 +2,10 @@ using System.Text.Json.Serialization;
 using FluentValidation;
 using IberaReclamos.API.Filters;
 using IberaReclamos.Application.Validators;
+using IberaReclamos.Domain.Interfaces;
 using IberaReclamos.Infrastructure;
+using IberaReclamos.Infrastructure.Persistence;
+using IberaReclamos.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -57,6 +60,21 @@ builder.Services.AddValidatorsFromAssemblyContaining<CreateUserValidator>();
 // =========================================================================
 builder.Services.AddDbContext<IberaReclamosDbContext>(options =>
     options.UseNpgsql(defaultConnection));
+
+#endregion
+
+
+#region INYECCIÓN DE DEPENDENCIAS - REPOSITORIOS Y UNIT OF WORK
+// =========================================================================
+// INYECCIÓN DE DEPENDENCIAS - REPOSITORIOS Y UNIT OF WORK
+// =========================================================================
+// Scoped = una instancia por request HTTP, igual que el DbContext que comparten.
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IReportRepository, ReportRepository>();
+builder.Services.AddScoped<IRangerTaskRepository, RangerTaskRepository>();
+builder.Services.AddScoped<ITouristRepository, TouristRepository>();
 
 #endregion
 
