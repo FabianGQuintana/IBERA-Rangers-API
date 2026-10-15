@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 
 // Cultura invariante: los formularios (multipart) traen números con punto decimal ("-28.5").
@@ -304,8 +305,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// 2. Sirve wwwroot (fotos guardadas en disco cuando R2 no está configurado)
-app.UseStaticFiles();
+// 2. Sirve wwwroot (fotos guardadas en disco cuando R2 no está configurado).
+// FileProvider explícito: si wwwroot no existía al crear el builder (primer arranque), el UseStaticFiles()
+// por defecto no ve la carpeta que creamos arriba y las fotos devuelven 404.
+app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(webRootPath) });
 
 // 3. CORS: dejamos entrar las peticiones de los frontends
 app.UseCors("IberaFrontendPolicy");
