@@ -1,7 +1,3 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Security.Principal;
-using System.Text;
 using IberaReclamos.Domain.Enum;
 
 
@@ -24,10 +20,16 @@ namespace IberaReclamos.Domain.Entities
         public required string Password_hash { get; set; }
 
         //FK y Navegación completa del Rol
-        public Guid IdRol {  get; set; }
+        public Guid IdRol { get; set; }
 
         // La Propiedad de Navegación (Navigation Property)
-        // Esto te permite acceder a los datos del rol directamente en C# (ej: user.Rol.Nombre)
-        public required virtual Role Rol { get; set; }
+        // Esto te permite acceder a los datos del rol directamente en C# (ej: user.Rol.RolName)
+        // "= null!" en vez de "required": EF la completa al hacer Include, no hace falta pasarla al crear.
+        public virtual Role Rol { get; set; } = null!;
+
+        //Navegacion inversa
+        public virtual ICollection<Report> Reports { get; set; } = new List<Report>();
+
+        public virtual ICollection<RangerTask> AssignedTasks { get; set; } = new List<RangerTask>();
     }
 }
