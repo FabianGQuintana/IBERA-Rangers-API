@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Fotos guardadas en disco local cuando R2 no está configurado (desarrollo)
+**/wwwroot/uploads/
