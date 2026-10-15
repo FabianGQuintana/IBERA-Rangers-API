@@ -1,11 +1,15 @@
 using System.Text.Json.Serialization;
 using FluentValidation;
 using IberaReclamos.API.Filters;
+using IberaReclamos.Application.Interfaces.Common;
+using IberaReclamos.Application.Interfaces.Services;
+using IberaReclamos.Application.Services;
 using IberaReclamos.Application.Validators;
 using IberaReclamos.Domain.Interfaces;
 using IberaReclamos.Infrastructure;
 using IberaReclamos.Infrastructure.Persistence;
 using IberaReclamos.Infrastructure.Persistence.Repositories;
+using IberaReclamos.Infrastructure.Persistence.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -75,6 +79,28 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IReportRepository, ReportRepository>();
 builder.Services.AddScoped<IRangerTaskRepository, RangerTaskRepository>();
 builder.Services.AddScoped<ITouristRepository, TouristRepository>();
+
+#endregion
+
+
+#region INYECCIÓN DE DEPENDENCIAS - SERVICIOS (Lógica de Negocio)
+// =========================================================================
+// INYECCIÓN DE DEPENDENCIAS - SERVICIOS (Lógica de Negocio)
+// =========================================================================
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IRoleService, RoleService>();
+builder.Services.AddScoped<IReportCategoryService, ReportCategoryService>();
+builder.Services.AddScoped<IRangerTaskService, RangerTaskService>();
+
+#endregion
+
+
+#region INFRAESTRUCTURA / SEGURIDAD
+// =========================================================================
+// INFRAESTRUCTURA / SEGURIDAD
+// =========================================================================
+// Singleton: BCrypt no guarda estado, una sola instancia sirve para toda la app.
+builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 
 #endregion
 
