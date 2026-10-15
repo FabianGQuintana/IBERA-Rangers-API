@@ -1,7 +1,14 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using FluentValidation;
 using IberaReclamos.API.Filters;
+using IberaReclamos.API.Middleware;
 using IberaReclamos.Application.Common.Options;
+using IberaReclamos.Application.Models;
+using IberaReclamos.Domain.Constants;
+using IberaReclamos.Infrastructure.Persistence.Seed;
+using Microsoft.OpenApi;
 using IberaReclamos.Application.Interfaces.Common;
 using IberaReclamos.Application.Interfaces.Services;
 using IberaReclamos.Application.Services;
@@ -18,6 +25,11 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+
+// Cultura invariante: los formularios (multipart) traen números con punto decimal ("-28.5").
+// Con la cultura del servidor en español, "-28.5" se leería mal (la coma es el separador decimal).
+CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,7 +74,42 @@ builder.Services.AddControllers(options =>
 // con el mismo formato que el resto de la API.
 builder.Services.Configure<ApiBehaviorOptions>(options => options.SuppressModelStateInvalidFilter = true);
 
-builder.Services.AddOpenApi();
+#endregion
+
+
+#region SWAGGER (Documentación de la API)
+// =========================================================================
+// SWAGGER (Documentación de la API) -> /swagger en Development
+// =========================================================================
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "IberaReclamos API",
+        Version = "v1",
+        Description = "Reclamos de turistas y reportes ambientales de los guardaparques del Iberá."
+    });
+
+    // Botón "Authorize" de Swagger: pegás el token del login y Swagger lo manda en cada request
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Pegá solo el token (sin la palabra Bearer)."
+    });
+    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("Bearer", document)] = new List<string>()
+    });
+
+    // Usa los comentarios /// de los controllers como descripción de cada endpoint
+    var xmlFile = $"{typeof(Program).Assembly.GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath)) options.IncludeXmlComments(xmlPath);
+});
 
 #endregion
 
@@ -168,6 +215,61 @@ builder.Services.AddAuthorization();
 #endregion
 
 
+#region RATE LIMITING
+// =========================================================================
+// RATE LIMITING (frena bots y fuerza bruta en los endpoints públicos)
+// =========================================================================
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new ApiErrorResponse
+        {
+            Code = ErrorCodes.TooManyRequests,
+            Message = "Hiciste demasiados intentos. Esperá un minuto y probá de nuevo.",
+            TraceId = context.HttpContext.TraceIdentifier
+        }, cancellationToken);
+    };
+
+    // Login: 10 intentos por minuto por IP
+    options.AddPolicy("AuthLoginPolicy", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+
+    // Formulario público de turistas: 20 envíos por minuto por IP
+    // (generoso: la cola offline del front puede mandar varias valoraciones juntas al recuperar señal)
+    options.AddPolicy("PublicFeedbackPolicy", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
+
+#endregion
+
+
+#region CORS (Acceso desde los Frontends)
+// =========================================================================
+// CORS (Acceso desde los Frontends: web de turistas y app de rangers)
+// =========================================================================
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:3000", "http://localhost:5173"];
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("IberaFrontendPolicy", policy =>
+    {
+        policy.WithOrigins(corsOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+#endregion
+
+
 #region CONSTRUCCIÓN DE LA APP
 // =========================================================================
 // 8. CONSTRUCCIÓN DE LA APP
@@ -181,22 +283,43 @@ var app = builder.Build();
 // =========================================================================
 // 9. PIPELINE DE LA APLICACIÓN (ORDEN CRÍTICO)
 // =========================================================================
+// 0. Migraciones (si Database:MigrateOnStartup = true) y primer admin (si SeedAdmin está configurado)
+using (var scope = app.Services.CreateScope())
+{
+    await DbSeeder.SeedAsync(
+        scope.ServiceProvider.GetRequiredService<IberaReclamosDbContext>(),
+        scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+        app.Configuration,
+        app.Logger);
+}
+
+// 1. Red de seguridad: va PRIMERO para atrapar las excepciones de todo lo que viene después
+app.UseMiddleware<ExceptionMiddleware>();
+
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI(options => options.DocumentTitle = "IberaReclamos API");
 }
 
 app.UseHttpsRedirection();
 
-// Sirve wwwroot (fotos guardadas en disco cuando R2 no está configurado)
+// 2. Sirve wwwroot (fotos guardadas en disco cuando R2 no está configurado)
 app.UseStaticFiles();
 
-// AUTHENTICATION: ¿Quién sos? (Lee el Token)
+// 3. CORS: dejamos entrar las peticiones de los frontends
+app.UseCors("IberaFrontendPolicy");
+
+// 4. Rate limiting
+app.UseRateLimiter();
+
+// 5. AUTHENTICATION: ¿Quién sos? (Lee el Token)
 app.UseAuthentication();
 
-// AUTHORIZATION: ¿Tenés permiso para esto? (Mira los Roles)
+// 6. AUTHORIZATION: ¿Tenés permiso para esto? (Mira los Roles)
 app.UseAuthorization();
 
+// 7. ROUTING: mandamos la petición al controlador
 app.MapControllers();
 
 app.Run();

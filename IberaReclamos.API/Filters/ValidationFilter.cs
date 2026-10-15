@@ -25,11 +25,20 @@ namespace IberaReclamos.API.Filters
             // 1. Errores de "binding": JSON mal formado, un Guid inválido, un enum que no existe, etc.
             if (!context.ModelState.IsValid)
             {
-                var bindingErrors = context.ModelState
-                    .Where(kv => kv.Value?.Errors.Count > 0)
-                    .ToDictionary(
-                        kv => ToCamelCase(kv.Key.TrimStart('$', '.')),
-                        kv => kv.Value!.Errors.Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage) ? "Valor inválido." : e.ErrorMessage).ToArray());
+                // Ignoramos el error genérico "el parámetro dto es obligatorio" cuando ya hay errores más precisos,
+                // y no devolvemos los mensajes internos del parser JSON (posiciones, rutas, etc.).
+                var parameterNames = context.ActionDescriptor.Parameters.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var entries = context.ModelState.Where(kv => kv.Value?.Errors.Count > 0).ToList();
+                if (entries.Count > 1) entries = entries.Where(kv => !parameterNames.Contains(kv.Key)).ToList();
+
+                var bindingErrors = entries.ToDictionary(
+                    kv => ToCamelCase(kv.Key.TrimStart('$', '.')),
+                    kv => kv.Value!.Errors
+                        .Select(e => e.Exception is not null || string.IsNullOrWhiteSpace(e.ErrorMessage) || e.ErrorMessage.Contains("LineNumber")
+                            ? "Valor con formato inválido."
+                            : e.ErrorMessage)
+                        .Distinct()
+                        .ToArray());
 
                 context.Result = new BadRequestObjectResult(new ApiErrorResponse
                 {
