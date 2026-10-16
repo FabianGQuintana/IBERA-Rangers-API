@@ -22,6 +22,7 @@ using IberaReclamos.Infrastructure.Services;
 using IberaReclamos.Infrastructure.Utils;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -34,12 +35,24 @@ CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Railway (y otros hostings) asignan el puerto en la variable PORT.
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
 // Fail fast: si faltan secretos la API no arranca (nunca los guardes en appsettings.json).
+// En Railway alcanza con referenciar la variable DATABASE_URL del servicio de Postgres.
 var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(defaultConnection))
 {
+    defaultConnection = ConnectionStrings.FromDatabaseUrl(builder.Configuration["DATABASE_URL"]);
+}
+if (string.IsNullOrWhiteSpace(defaultConnection))
+{
     throw new InvalidOperationException(
-        "ConnectionStrings:DefaultConnection must be configured (User Secrets or env var ConnectionStrings__DefaultConnection). " +
+        "ConnectionStrings:DefaultConnection (or DATABASE_URL) must be configured (User Secrets or env var ConnectionStrings__DefaultConnection). " +
         "See appsettings.example.json.");
 }
 
@@ -268,6 +281,18 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Detrás del proxy de Railway/Vercel el HTTPS termina en el borde: confiamos en X-Forwarded-For/Proto
+// para conocer la IP real del cliente (rate limiting) y el esquema real (https).
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// GET /health: lo usa Railway para saber cuándo la API está lista
+builder.Services.AddHealthChecks();
+
 #endregion
 
 
@@ -294,6 +319,9 @@ using (var scope = app.Services.CreateScope())
         app.Logger);
 }
 
+// 0.5 IP y esquema reales del cliente (antes que todo lo que dependa de ellos)
+app.UseForwardedHeaders();
+
 // 1. Red de seguridad: va PRIMERO para atrapar las excepciones de todo lo que viene después
 app.UseMiddleware<ExceptionMiddleware>();
 
@@ -303,7 +331,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(options => options.DocumentTitle = "IberaReclamos API");
 }
 
-app.UseHttpsRedirection();
+// En producción el proxy de Railway ya fuerza HTTPS; redirigir acá provocaría un bucle.
+if (!app.Environment.IsProduction())
+{
+    app.UseHttpsRedirection();
+}
 
 // 2. Sirve wwwroot (fotos guardadas en disco cuando R2 no está configurado).
 // FileProvider explícito: si wwwroot no existía al crear el builder (primer arranque), el UseStaticFiles()
@@ -324,6 +356,7 @@ app.UseAuthorization();
 
 // 7. ROUTING: mandamos la petición al controlador
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();
 #endregion
