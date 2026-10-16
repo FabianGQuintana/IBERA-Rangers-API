@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/.vs/
+**/wwwroot/uploads/
+**/*.user
+.git/
+docs/
